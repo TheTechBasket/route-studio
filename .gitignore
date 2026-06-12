@@ -1,0 +1,11 @@
+node_modules/
+data/cache/*
+!data/cache/.gitkeep
+data/input/*
+!data/input/.gitkeep
+assets/images/*
+!assets/images/.gitkeep
+assets/videos/*
+!assets/videos/.gitkeep
+.DS_Store
+*.log

@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Route Studio</title>
+    <link rel="preconnect" href="https://unpkg.com">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <header>
+      <div>
+        <p class="eyebrow">Dashcam telemetry / local workspace</p>
+        <h1>Route <i>Studio</i></h1>
+      </div>
+      <div class="status"><span></span><b id="index-status">Reading index</b></div>
+    </header>
+
+    <main>
+      <aside class="controls">
+        <section>
+          <p class="section-no">01 / TIME WINDOW</p>
+          <label>From <input id="start" type="datetime-local" step="1"></label>
+          <label>Until <input id="end" type="datetime-local" step="1"></label>
+          <button id="latest" class="text-button">Use latest day</button>
+          <button id="load">Load route <span>↗</span></button>
+        </section>
+        <section>
+          <p class="section-no">02 / EXPORT</p>
+          <div class="export-row">
+            <a id="gpx" class="secondary" href="#">GPX</a>
+            <a id="geojson" class="secondary" href="#">GeoJSON</a>
+          </div>
+        </section>
+        <section class="readout">
+          <p class="section-no">03 / READOUT</p>
+          <div><span>Points</span><strong id="point-count">—</strong></div>
+          <div><span>Distance</span><strong id="distance">—</strong></div>
+          <div><span>Peak speed</span><strong id="peak">—</strong></div>
+          <div><span>Selected window</span><strong id="duration">—</strong></div>
+          <div><span>Sources</span><strong id="source-count">—</strong></div>
+        </section>
+      </aside>
+
+      <section class="workspace">
+        <div id="map"></div>
+        <div class="map-label">LIVE ROUTE / <span id="range-label">SELECT A RANGE</span></div>
+        <div class="telemetry">
+          <div class="chart-title">
+            <div>
+              <select id="metric" aria-label="Chart metric">
+                <option value="speed">Cleaned speed</option>
+                <option value="rawSpeed">Raw device speed</option>
+                <option value="calculatedSpeed">Calculated speed</option>
+                <option value="heading">Heading</option>
+                <option value="altitude">Altitude</option>
+                <option value="sensorX">Sensor X</option>
+                <option value="sensorY">Sensor Y</option>
+                <option value="sensorZ">Sensor Z</option>
+              </select>
+              <strong id="current-value">0.0 <em>km/h</em></strong>
+            </div>
+            <div class="replay-controls">
+              <label class="inline-toggle"><input id="follow" type="checkbox" checked> Follow</label>
+              <select id="unit" aria-label="Speed unit"><option value="kmh">km/h</option><option value="mph">mph</option></select>
+              <button id="play" class="round" aria-label="Play replay">▶</button>
+              <select id="rate" aria-label="Replay speed"><option value="1">1×</option><option value="5">5×</option><option value="20" selected>20×</option><option value="60">60×</option></select>
+            </div>
+          </div>
+          <canvas id="chart"></canvas>
+          <input id="scrubber" type="range" min="0" max="0" value="0">
+          <div class="replay-time"><span id="current-time">—</span><span id="video-name">No route loaded</span></div>
+        </div>
+      </section>
+    </main>
+
+    <div id="toast" role="status"></div>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

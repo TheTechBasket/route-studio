@@ -1,0 +1,27 @@
+{
+  "name": "car-camera-route-studio",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Stream, index, explore, replay, and export dashcam GPS data.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "import": "node app.ts import",
+    "serve": "node app.ts serve",
+    "start": "node app.ts import && node app.ts serve",
+    "test": "node --test test/*.test.ts"
+  },
+  "engines": {
+    "node": ">=22.6"
+  },
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "^11.2.2",
+      "onFail": "download"
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.3"
+  }
+}
