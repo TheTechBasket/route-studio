@@ -2,6 +2,8 @@
 
 Local, dependency-light route viewer for dashcam TXT, GPX, and GeoJSON files.
 
+![Preview screenshots](preview.png)
+
 ## Features
 
 - Date and time range filtering
