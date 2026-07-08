@@ -455,69 +455,52 @@ body.hide-tooltip-labels .leaflet-tooltip.custom-tooltip {
 #time-section.loaded .time-form { display: none; }
 #time-section.loaded .time-summary { display: flex; }
 
-/* Trip report print styles */
-.hidden-print { display: none; }
-#print-report-content { display: none; }
+/* Trip report overlay + print styles */
+#trip-report-overlay { position: fixed; inset: 0; z-index: 9998; background: var(--panel); overflow-y: auto; }
+#trip-report-overlay.hidden { display: none; }
+.report-page {
+  max-width: 210mm; margin: 56px auto 0; padding: 15mm 18mm;
+  font-family: "DM Mono", monospace; color: #171a18;
+  background: white;
+}
+.report-page h1 {
+  font-family: "Manrope", sans-serif; font-size: 32px; letter-spacing: -.065em;
+  margin: 0 0 2px;
+}
+.report-page .report-date { font-size: 10px; color: #6c716b; margin-bottom: 8px; }
+.report-page .report-map svg { width: 100%; height: auto; max-height: 260px; border: 1px solid #c9ccc2; margin: 14px 0 20px; }
+.report-page h2 {
+  font-family: "Manrope", sans-serif; font-size: 14px; margin: 28px 0 0; padding-bottom: 4px;
+  border-bottom: 1px solid #c9ccc2;
+}
+.report-page .stat-grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; margin: 14px 0 0; }
+.report-page .stat-card { border: 1px solid #c9ccc2; padding: 10px; }
+.report-page .stat-card strong { display: block; font-size: 22px; font-family: "DM Mono", monospace; }
+.report-page .stat-card span { font-size: 8px; color: #6c716b; text-transform: uppercase; letter-spacing: .12em; }
+.report-page .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.report-page .breakdown-bar { display: flex; height: 18px; border: 1px solid #171a18; overflow: hidden; margin: 8px 0 4px; }
+.report-page .breakdown-bar div { transition: width 0s; }
+.report-page .breakdown-labels { display: flex; font-size: 9px; justify-content: space-between; }
+.report-page .breakdown-labels span { display: flex; align-items: center; gap: 4px; }
+.report-page .breakdown-labels i { display: inline-block; width: 8px; height: 8px; }
+.report-page table { width: 100%; border-collapse: collapse; font-size: 11px; margin: 10px 0 0; }
+.report-page th { padding: 5px 6px; font-size: 9px; color: #6c716b; text-align: left; border-bottom: 1px solid #c9ccc2; }
+.report-page td { padding: 5px 6px; border-bottom: 1px solid #eef0e9; }
+.report-page .fun-fact { font-size: 11px; margin: 18px 0 0; padding: 12px; border: 1px dashed #c9ccc2; background: #f8f8f3; }
+.report-page .report-footer { margin-top: 24px; padding-top: 8px; border-top: 1px solid #c9ccc2; font-size: 9px; color: #6c716b; }
 
 @media print {
-  body > *:not(#print-report-content, #print-report-content *) { display: none !important; }
-  #print-report-content {
-    display: block !important;
-    position: fixed; inset: 0;
-    padding: 40px;
-    font-family: "DM Mono", monospace;
-    color: #171a18;
-    background: #f8f8f3;
-    overflow: visible !important;
-    max-height: none !important;
-  }
-  #print-report-content h1 {
-    font-family: "Manrope", sans-serif;
-    font-size: 36px;
-    letter-spacing: -.065em;
-    margin: 0 0 4px;
-  }
-  #print-report-content .report-meta {
-    font-size: 11px;
-    color: #6c716b;
-    margin-bottom: 32px;
-  }
-  #print-report-content h2 {
-    font-family: "Manrope", sans-serif;
-    font-size: 16px;
-    border-bottom: 1px solid #c9ccc2;
-    padding-bottom: 6px;
-    margin: 24px 0 12px;
-  }
-  #print-report-content table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 12px;
-    margin-bottom: 16px;
-  }
-  #print-report-content th { padding: 6px 8px; font-size: 10px; color: #6c716b; text-align: left; border-bottom: 1px solid #c9ccc2; }
-  #print-report-content td { padding: 6px 8px; border-bottom: 1px solid #eef0e9; }
-  #print-report-content td:last-child:not(:only-child) { text-align: right; font-weight: 600; }
-  #print-report-content svg { max-width: 100% !important; height: auto !important; page-break-inside: avoid; }
-  #print-report-content .stat-grid {
-    display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
-  }
-  #print-report-content .stat-card {
-    border: 1px solid #c9ccc2; padding: 12px; background: #f8f8f3;
-  }
-  #print-report-content .stat-card strong {
-    display: block; font-size: 24px; font-family: "DM Mono", monospace;
-  }
-  #print-report-content .stat-card span {
-    font-size: 9px; color: #6c716b; text-transform: uppercase; letter-spacing: .12em;
-  }
-  #print-report-content .report-footer {
-    margin-top: 40px;
-    padding-top: 12px;
-    border-top: 1px solid #c9ccc2;
-    font-size: 10px;
-    color: #6c716b;
-  }
-  @page { margin: 20mm; }
+  #report-toolbar { display: none !important; }
+  body > *:not(#trip-report-overlay, #trip-report-overlay *) { display: none !important; }
+  #trip-report-overlay { position: static !important; overflow: visible !important; background: white !important; }
+  #trip-report-overlay.hidden { display: block !important; }
+  .report-page { margin: 0 auto; padding: 12mm 15mm; max-width: 100%; box-shadow: none; }
+  .report-page .stat-grid { grid-template-columns: 1fr 1fr 1fr 1fr; }
+  .report-page h2 { page-break-after: avoid; }
+  .report-page table { page-break-inside: auto; }
+  .report-page tr { page-break-inside: avoid; page-break-after: auto; }
+  .report-page .fun-fact { page-break-inside: avoid; }
+  .report-page .report-map svg { max-height: 200px; }
+  @page { margin: 0; size: A4; }
 }
 

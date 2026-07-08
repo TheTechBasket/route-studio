@@ -1091,65 +1091,160 @@ $("#expand-time").addEventListener("click", () => {
   $("#time-section").classList.remove("loaded");
 });
 
-function generateRouteSVG(pts, w = 600, h = 260) {
+function generateRouteSVG(pts, w = 620, h = 260) {
   if (!pts || pts.length < 2) return '';
   let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
   pts.forEach(p => { if (p.latitude < minLat) minLat = p.latitude; if (p.latitude > maxLat) maxLat = p.latitude; if (p.longitude < minLng) minLng = p.longitude; if (p.longitude > maxLng) maxLng = p.longitude; });
-  const pad = 30;
-  const spanLat = Math.max(maxLat - minLat, 0.001);
-  const spanLng = Math.max(maxLng - minLng, 0.001);
+  const pad = 30, spanLat = Math.max(maxLat - minLat, 0.001), spanLng = Math.max(maxLng - minLng, 0.001);
   const toX = lng => pad + (lng - minLng) / spanLng * (w - 2 * pad);
   const toY = lat => h - pad - (lat - minLat) / spanLat * (h - 2 * pad);
   const ptsStr = pts.map(p => `${toX(p.longitude).toFixed(1)},${toY(p.latitude).toFixed(1)}`).join(' ');
-  const s = toX(pts[0].longitude), sy = toY(pts[0].latitude);
+  const sx = toX(pts[0].longitude), sy = toY(pts[0].latitude);
   const ex = toX(pts[pts.length - 1].longitude), ey = toY(pts[pts.length - 1].latitude);
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" style="width:100%;max-width:${w}px;border:1px solid #c9ccc2;margin:16px 0;display:block;">
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}">
     <rect width="${w}" height="${h}" fill="#eef0e9"/>
-    <polyline points="${ptsStr}" fill="none" stroke="#171a18" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" opacity="0.65"/>
-    <circle cx="${s.toFixed(1)}" cy="${sy.toFixed(1)}" r="5" fill="white" stroke="#171a18" stroke-width="2" opacity="0.9"/>
-    <circle cx="${ex.toFixed(1)}" cy="${ey.toFixed(1)}" r="5" fill="#171a18" stroke="white" stroke-width="2" opacity="0.9"/>
-    <text x="${s.toFixed(1)}" y="${(sy - 10).toFixed(1)}" font-family="DM Mono,monospace" font-size="9" fill="#6c716b" text-anchor="middle">Start</text>
-    <text x="${ex.toFixed(1)}" y="${(ey - 10).toFixed(1)}" font-family="DM Mono,monospace" font-size="9" fill="#6c716b" text-anchor="middle">End</text>
+    <polyline points="${ptsStr}" fill="none" stroke="#171a18" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" opacity="0.6"/>
+    <circle cx="${sx.toFixed(1)}" cy="${sy.toFixed(1)}" r="4.5" fill="white" stroke="#171a18" stroke-width="2"/>
+    <circle cx="${ex.toFixed(1)}" cy="${ey.toFixed(1)}" r="4.5" fill="#171a18" stroke="white" stroke-width="2"/>
+    <text x="${sx.toFixed(1)}" y="${(sy - 10).toFixed(1)}" font-family="system-ui,sans-serif" font-size="9" fill="#6c716b" text-anchor="middle">Start</text>
+    <text x="${ex.toFixed(1)}" y="${(ey - 10).toFixed(1)}" font-family="system-ui,sans-serif" font-size="9" fill="#6c716b" text-anchor="middle">End</text>
   </svg>`;
+}
+
+function computeTripStats(routePoints, stops) {
+  if (!routePoints.length) return {};
+  const first = routePoints[0], last = routePoints[routePoints.length - 1];
+  const totalMs = last.timestamp - first.timestamp;
+  const totalH = totalMs / 3600000;
+
+  // Elevation
+  const alts = routePoints.map(p => p.altitude).filter(a => a !== null && Number.isFinite(a));
+  const highEl = alts.length ? Math.max(...alts) : null;
+  const lowEl = alts.length ? Math.min(...alts) : null;
+
+  // Speeds
+  const speeds = routePoints.map(p => p.speed).filter(s => s !== null && Number.isFinite(s) && s > 0);
+  const avgMovingSpeed = speeds.length ? speeds.reduce((a, b) => a + b, 0) / speeds.length : 0;
+
+  // Driving time (total - sum of stops)
+  const stoppedMs = stops.reduce((sum, s) => sum + s.duration, 0);
+  const drivingMs = Math.max(0, totalMs - stoppedMs);
+  const restStops = stops.filter(s => s.type === 'rest').length;
+  const nightStays = stops.filter(s => s.type === 'night').length;
+  const restMs = stops.filter(s => s.type === 'rest').reduce((s, st) => s + st.duration, 0);
+  const nightMs = stops.filter(s => s.type === 'night').reduce((s, st) => s + st.duration, 0);
+
+  // Daily distance estimate from the summary km
+  const days = Math.max(1, Math.ceil(totalMs / 86400000));
+  const distKm = parseFloat($("#distance").textContent) || 0;
+  const avgDailyKm = distKm / days;
+
+  // Fun fact: walking equivalent (5 km/h average walking speed)
+  const walkingH = distKm / 5;
+  const walkDays = Math.floor(walkingH / 24);
+  const walkHours = Math.round(walkingH % 24);
+
+  return {
+    startTime: first.timestamp, endTime: last.timestamp,
+    totalHours: totalH, drivingHours: drivingMs / 3600000, stoppedHours: stoppedMs / 3600000,
+    restCount: restStops, nightCount: nightStays,
+    restHours: restMs / 3600000, nightHours: nightMs / 3600000,
+    highEl, lowEl, avgMovingSpeed, avgDailyKm, walkDays, walkHours, distKm
+  };
 }
 
 $("#print-report").addEventListener("click", () => {
   if (!points.length) return toast("Load a route first");
   const { start, end } = selectedRange();
+  if (!Number.isFinite(start)) return toast("Select a valid date range");
+
+  const range = `${new Date(start).toLocaleDateString()} - ${new Date(end).toLocaleDateString()}`;
   const dist = $("#distance").textContent;
   const peak = $("#peak").textContent;
   const dur = $("#duration").textContent;
-  const range = `${new Date(start).toLocaleDateString()} → ${new Date(end).toLocaleDateString()}`;
-
-  const highlightsHtml = loadedHighlights().map(h => {
-    const cat = categories.find(c => c.type === h.type) || { emoji: "📍", label: "Highlight" };
-    return `<tr><td>${h.name}</td><td>${cat.emoji} ${cat.label}</td><td>${h.timestamp ? new Date(h.timestamp).toLocaleDateString() : '—'}</td></tr>`;
-  }).join("");
-
-  const stopsHtml = detectedStops.filter(s => !dismissedStops.has(s.id)).map(s => {
-    const t = s.type === "night" ? "Night Stay" : "Rest Stop";
-    return `<tr><td>${t}</td><td>${formatDuration(s.duration)}</td><td>${new Date(s.startTimestamp).toLocaleDateString()}</td><td>${s.name || '—'}</td></tr>`;
-  }).join("");
-
-  const ptCount = $("#point-count").textContent;
+  const stats = computeTripStats(points, detectedStops.filter(s => !dismissedStops.has(s.id)));
   const routeSvg = generateRouteSVG(points);
 
-  $("#print-report-content").innerHTML = `
-    <div class="report-meta">Route Studio — Trip Report</div>
-    <h1>Route <i style="font-family:Newsreader,serif;font-weight:500">Studio</i></h1>
-    <div class="report-meta" style="margin-bottom:16px">${range}</div>
-    ${routeSvg}
+  const startStr = new Date(stats.startTime).toLocaleString();
+  const endStr = new Date(stats.endTime).toLocaleString();
+
+  const drivePct = stats.totalHours > 0 ? Math.round(stats.drivingHours / stats.totalHours * 100) : 0;
+  const restPct = stats.totalHours > 0 ? Math.round(stats.restHours / stats.totalHours * 100) : 0;
+  const nightPct = stats.totalHours > 0 ? Math.round(stats.nightHours / stats.totalHours * 100) : 0;
+
+  const highlightsHtml = loadedHighlights().map(h => {
+    const cat = categories.find(c => c.type === h.type) || { label: "Highlight" };
+    return `<tr><td>${h.name}</td><td>${cat.label}</td><td>${h.timestamp ? new Date(h.timestamp).toLocaleDateString() : '—'}</td></tr>`;
+  }).join("");
+
+  const page = $("#trip-report-page");
+  page.innerHTML = `
+    <h1>Route Studio</h1>
+    <div class="report-date">${range}</div>
+
+    <div class="report-map">${routeSvg}</div>
+
     <div class="stat-grid">
       <div class="stat-card"><span>Distance</span><strong>${dist}</strong></div>
-      <div class="stat-card"><span>Duration</span><strong>${dur}</strong></div>
+      <div class="stat-card"><span>Driving</span><strong>${formatDuration(stats.drivingHours * 3600000)}</strong></div>
+      <div class="stat-card"><span>Stopped</span><span style="display:block;font-size:9px;color:#6c716b;margin-top:2px;font-family:'DM Mono',monospace">${stats.restCount} rest / ${stats.nightCount} night</span><strong>${formatDuration(stats.stoppedHours * 3600000)}</strong></div>
       <div class="stat-card"><span>Peak Speed</span><strong>${peak}</strong></div>
-      <div class="stat-card"><span>Points</span><strong>${ptCount}</strong></div>
     </div>
-    ${highlightsHtml ? `<h2>📍 Highlights</h2><table>${highlightsHtml}</table>` : ''}
-    ${stopsHtml ? `<h2>⏸️ Stops</h2><table><tr><th style="text-align:left">Type</th><th style="text-align:left">Duration</th><th style="text-align:left">Date</th><th style="text-align:left">Location</th></tr>${stopsHtml}</table>` : ''}
-    <div class="report-footer">
-      Generated by <strong>Route Studio</strong> · <a href="https://github.com/TheTechBasket/route-studio" style="color:#171a18">github.com/TheTechBasket/route-studio</a>
+    <div class="stat-grid" style="margin-top:8px">
+      <div class="stat-card"><span>Highest Point</span><strong>${stats.highEl !== null ? Math.round(stats.highEl) + ' m' : '—'}</strong></div>
+      <div class="stat-card"><span>Lowest Point</span><strong>${stats.lowEl !== null ? Math.round(stats.lowEl) + ' m' : '—'}</strong></div>
+      <div class="stat-card"><span>Avg Moving Speed</span><strong>${stats.avgMovingSpeed ? stats.avgMovingSpeed.toFixed(1) + ' km/h' : '—'}</strong></div>
+      <div class="stat-card"><span>Avg Daily</span><strong>${stats.avgDailyKm ? stats.avgDailyKm.toFixed(0) + ' km' : '—'}</strong></div>
     </div>
+
+    <h2>Time Breakdown</h2>
+    <div class="breakdown-bar">
+      <div style="width:${drivePct}%;background:#171a18"></div>
+      <div style="width:${restPct}%;background:#c9ccc2"></div>
+      <div style="width:${nightPct}%;background:#6c716b"></div>
+    </div>
+    <div class="breakdown-labels">
+      <span><i style="background:#171a18"></i> Driving ${formatDuration(stats.drivingHours * 3600000)}</span>
+      <span><i style="background:#c9ccc2"></i> Rest stops ${formatDuration(stats.restHours * 3600000)}</span>
+      <span><i style="background:#6c716b"></i> Night stays ${formatDuration(stats.nightHours * 3600000)}</span>
+    </div>
+
+    ${highlightsHtml ? `<h2>Highlights (${loadedHighlights().length})</h2><table>${highlightsHtml}</table>` : ''}
+
+    <div class="fun-fact">
+      <strong>Fun fact:</strong> At an average walking pace of 5 km/h, covering ${stats.distKm.toFixed(0)} km would take
+      <strong>${stats.walkDays} days ${stats.walkHours} hours</strong> of continuous walking.
+      You did it in ${formatDuration(stats.totalHours * 3600000)} with ${stats.restCount + stats.nightCount} stops.
+    </div>
+
+    <div class="report-footer">${startStr} - ${endStr} · Generated by Route Studio · github.com/TheTechBasket/route-studio</div>
   `;
-  setTimeout(window.print, 200);
+
+  $("#trip-report-overlay").classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+});
+
+$("#report-close").addEventListener("click", () => {
+  $("#trip-report-overlay").classList.add("hidden");
+  document.body.style.overflow = "";
+});
+
+$("#report-print").addEventListener("click", () => {
+  window.print();
+});
+
+$("#report-png").addEventListener("click", () => {
+  const node = document.getElementById("trip-report-page");
+  if (typeof htmlToImage !== "undefined" && htmlToImage.toPng) {
+    htmlToImage.toPng(node, { quality: 1, pixelRatio: 2 })
+      .then(dataUrl => {
+        const link = document.createElement("a");
+        link.download = "trip-report.png";
+        link.href = dataUrl;
+        link.click();
+      })
+      .catch(() => toast("PNG export failed — use Print > Save as PDF instead"));
+  } else {
+    toast("PNG library not loaded — use Print > Save as PDF instead");
+  }
 });
