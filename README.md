@@ -78,4 +78,4 @@ Licensed under [GNU AGPL-3.0-only](LICENSE). Commercial use is allowed. Modified
 
 ---
 
-Built with tooling and notes from [The Tech Basket](https://www.thetechbasket.com).
+Built by People at [The Tech Basket](https://www.thetechbasket.com).
