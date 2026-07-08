@@ -7,6 +7,18 @@
     <link rel="preconnect" href="https://unpkg.com">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <link rel="stylesheet" href="/styles.css">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+    tailwind.config = {
+      corePlugins: { preflight: false },
+      theme: {
+        extend: {
+          colors: { ink: '#171a18', paper: '#eef0e9', panel: '#f8f8f3', lime: '#c9ff3d', line: '#c9ccc2', muted: '#6c716b' },
+          fontFamily: { mono: ['DM Mono', 'monospace'], sans: ['Manrope', 'sans-serif'] },
+        }
+      }
+    }
+    </script>
   </head>
   <body>
     <header>
@@ -43,6 +55,7 @@
             <a id="gpx" class="secondary" href="#">GPX</a>
             <a id="geojson" class="secondary" href="#">GeoJSON</a>
           </div>
+          <button id="print-report" class="secondary" style="width:100%;margin-top:8px;">🖨️ Trip Report</button>
         </section>
         <section class="readout">
           <p class="section-no">03 / READOUT</p>
@@ -94,6 +107,10 @@
             <p class="empty-note">No highlighted places</p>
           </div>
         </section>
+        <div class="px-6 py-4 border-t border-line text-[9px] font-mono text-muted flex items-center justify-between">
+          <span>Route Studio</span>
+          <a href="https://github.com/TheTechBasket/route-studio" target="_blank" class="underline underline-offset-2 hover:text-ink">GitHub</a>
+        </div>
       </aside>
 
       <section class="workspace">
@@ -129,6 +146,7 @@
     </main>
 
     <div id="toast" role="status"></div>
+    <div id="print-report-content" class="hidden-print"></div>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script type="module" src="/app.js"></script>
   </body>

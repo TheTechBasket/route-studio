@@ -455,4 +455,66 @@ body.hide-tooltip-labels .leaflet-tooltip.custom-tooltip {
 #time-section.loaded .time-form { display: none; }
 #time-section.loaded .time-summary { display: flex; }
 
+/* Trip report print styles */
+.hidden-print { display: none; }
+#print-report-content { display: none; }
+
+@media print {
+  body > *:not(#print-report-content, #print-report-content *) { display: none !important; }
+  #print-report-content {
+    display: block !important;
+    position: fixed; inset: 0;
+    padding: 40px;
+    font-family: "DM Mono", monospace;
+    color: #171a18;
+    background: #f8f8f3;
+    overflow-y: auto;
+  }
+  #print-report-content h1 {
+    font-family: "Manrope", sans-serif;
+    font-size: 36px;
+    letter-spacing: -.065em;
+    margin: 0 0 4px;
+  }
+  #print-report-content .report-meta {
+    font-size: 11px;
+    color: #6c716b;
+    margin-bottom: 32px;
+  }
+  #print-report-content h2 {
+    font-family: "Manrope", sans-serif;
+    font-size: 16px;
+    border-bottom: 1px solid #c9ccc2;
+    padding-bottom: 6px;
+    margin: 24px 0 12px;
+  }
+  #print-report-content table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    margin-bottom: 16px;
+  }
+  #print-report-content td { padding: 6px 8px; border-bottom: 1px solid #eef0e9; }
+  #print-report-content td:last-child { text-align: right; font-weight: 600; }
+  #print-report-content .stat-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+  }
+  #print-report-content .stat-card {
+    border: 1px solid #c9ccc2; padding: 12px; background: #f8f8f3;
+  }
+  #print-report-content .stat-card strong {
+    display: block; font-size: 24px; font-family: "DM Mono", monospace;
+  }
+  #print-report-content .stat-card span {
+    font-size: 9px; color: #6c716b; text-transform: uppercase; letter-spacing: .12em;
+  }
+  #print-report-content .report-footer {
+    margin-top: 40px;
+    padding-top: 12px;
+    border-top: 1px solid #c9ccc2;
+    font-size: 10px;
+    color: #6c716b;
+  }
+  @page { margin: 20mm; }
+}
 

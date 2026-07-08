@@ -34,6 +34,7 @@ let pausedStops = new Set();
 const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 let stopsOverrides = {};
+let dismissedStops = new Set();
 let highlights = [];
 let stopMarkers = [];
 let highlightMarkers = [];
@@ -556,50 +557,49 @@ function findClosestRoutePoint(lat, lng) {
 
 function renderStopsList() {
   const container = $("#stops-list");
-  if (!detectedStops.length) {
-    container.innerHTML = `<p class="empty-note">No stops detected</p>`;
+  const visible = detectedStops.filter(s => !dismissedStops.has(s.id));
+  if (!visible.length) {
+    container.innerHTML = `<p class="empty-note">${detectedStops.length ? 'All stops dismissed' : 'No stops detected'}</p>`;
     return;
   }
   container.innerHTML = "";
-  detectedStops.forEach(stop => {
+  visible.forEach(stop => {
     const card = document.createElement("div");
-    card.className = "stop-card";
-    
     const startTimeStr = new Date(stop.startTimestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const durationStr = formatDuration(stop.duration);
-    const stopType = stop.type;
-    
+    const isNight = stop.type === "night";
+
+    card.className = "flex items-center gap-2 px-2.5 py-1.5 border border-line hover:border-ink cursor-pointer";
     card.innerHTML = `
-      <div class="card-header">
-        <span class="card-title">${stop.name || `Stop at ${startTimeStr}`}</span>
-        <span class="stop-duration">${durationStr}</span>
-      </div>
-      <div class="card-subtitle">
-        ${new Date(stop.startTimestamp).toLocaleDateString()} ${startTimeStr}
-      </div>
-      <div class="toggle-group">
-        <button class="${stopType === 'rest' ? 'active' : ''}" data-type="rest">Rest Stop</button>
-        <button class="${stopType === 'night' ? 'active' : ''}" data-type="night">Night Stay</button>
-      </div>
+      <span class="inline-block w-2.5 h-2.5 rounded-full shrink-0 ${isNight ? 'bg-ink' : 'bg-lime'} ${isNight ? '' : 'border border-ink'}"></span>
+      <span class="font-mono text-[10px] font-semibold shrink-0 ${isNight ? 'text-ink' : 'text-muted'}">${durationStr}</span>
+      <span class="flex-1 text-[11px] truncate">${stop.name || `Stop ${startTimeStr}`}</span>
+      <span class="font-mono text-[9px] text-muted shrink-0 hidden sm:inline">${new Date(stop.startTimestamp).toLocaleDateString()}</span>
+      <span class="text-[10px] text-muted shrink-0 cursor-pointer hover:text-ink px-1 dismiss-btn" title="Dismiss stop">✕</span>
     `;
-    
-    const buttons = card.querySelectorAll(".toggle-group button");
-    buttons.forEach(btn => {
-      btn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        const newType = btn.getAttribute("data-type");
-        stopsOverrides[stop.id] = newType;
-        stop.type = newType;
-        saveConfig();
-        renderStopsList();
-        renderStopsOnMap();
-      });
+
+    const dot = card.querySelector('span:first-child');
+    dot.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const newType = isNight ? 'rest' : 'night';
+      stopsOverrides[stop.id] = newType;
+      stop.type = newType;
+      saveConfig();
+      renderStopsList();
+      renderStopsOnMap();
     });
-    
-    card.addEventListener("click", () => {
+
+    card.querySelector('.dismiss-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      dismissedStops.add(stop.id);
+      renderStopsList();
+      renderStopsOnMap();
+    });
+
+    card.addEventListener('click', () => {
       map.flyTo([stop.latitude, stop.longitude], 15);
     });
-    
+
     container.appendChild(card);
   });
 }
@@ -610,7 +610,7 @@ function renderStopsOnMap() {
 
   if (!$("#show-stops").checked) return;
 
-  detectedStops.forEach(stop => {
+  detectedStops.filter(s => !dismissedStops.has(s.id)).forEach(stop => {
     const isNight = stop.type === "night";
     const m = L.circleMarker([stop.latitude, stop.longitude], {
       radius: isNight ? 9 : 6,
@@ -1088,4 +1088,44 @@ async function updateRoadSnapping() {
 
 $("#expand-time").addEventListener("click", () => {
   $("#time-section").classList.remove("loaded");
+});
+
+$("#print-report").addEventListener("click", () => {
+  if (!points.length) return toast("Load a route first");
+  const { start, end } = selectedRange();
+  const dist = $("#distance").textContent;
+  const peak = $("#peak").textContent;
+  const dur = $("#duration").textContent;
+  const range = `${new Date(start).toLocaleDateString()} → ${new Date(end).toLocaleDateString()}`;
+
+  const highlightsHtml = loadedHighlights().map(h => {
+    const cat = categories.find(c => c.type === h.type) || { emoji: "📍", label: "Highlight" };
+    return `<tr><td>${h.name}</td><td>${cat.emoji} ${cat.label}</td><td>${h.timestamp ? new Date(h.timestamp).toLocaleDateString() : '—'}</td></tr>`;
+  }).join("");
+
+  const stopsHtml = detectedStops.filter(s => !dismissedStops.has(s.id)).map(s => {
+    const t = s.type === "night" ? "Night Stay" : "Rest Stop";
+    return `<tr><td>${t}</td><td>${formatDuration(s.duration)}</td><td>${new Date(s.startTimestamp).toLocaleDateString()}</td><td>${s.name || '—'}</td></tr>`;
+  }).join("");
+
+  const ptCount = $("#point-count").textContent;
+
+  $("#print-report-content").innerHTML = `
+    <div class="report-meta">Route Studio — Trip Report</div>
+    <h1>Route <i style="font-family:Newsreader,serif;font-weight:500">Studio</i></h1>
+    <div class="report-meta" style="margin-bottom:24px">${range}</div>
+    <div class="stat-grid">
+      <div class="stat-card"><span>Distance</span><strong>${dist}</strong></div>
+      <div class="stat-card"><span>Duration</span><strong>${dur}</strong></div>
+      <div class="stat-card"><span>Peak Speed</span><strong>${peak}</strong></div>
+      <div class="stat-card"><span>Points</span><strong>${ptCount}</strong></div>
+    </div>
+    ${highlightsHtml ? `<h2>📍 Highlights</h2><table>${highlightsHtml}</table>` : ''}
+    ${stopsHtml ? `<h2>⏸️ Stops</h2><table><tr><th>Type</th><th>Duration</th><th>Date</th><th>Location</th></tr>${stopsHtml}</table>` : ''}
+    <div class="report-footer">
+      Generated by <strong>Route Studio</strong> · <a href="https://github.com/TheTechBasket/route-studio" style="color:#171a18">github.com/TheTechBasket/route-studio</a>
+    </div>
+  `;
+  // Short delay so the DOM renders before print.
+  setTimeout(window.print, 200);
 });
