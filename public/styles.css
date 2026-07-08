@@ -468,7 +468,8 @@ body.hide-tooltip-labels .leaflet-tooltip.custom-tooltip {
     font-family: "DM Mono", monospace;
     color: #171a18;
     background: #f8f8f3;
-    overflow-y: auto;
+    overflow: visible !important;
+    max-height: none !important;
   }
   #print-report-content h1 {
     font-family: "Manrope", sans-serif;
@@ -494,8 +495,10 @@ body.hide-tooltip-labels .leaflet-tooltip.custom-tooltip {
     font-size: 12px;
     margin-bottom: 16px;
   }
+  #print-report-content th { padding: 6px 8px; font-size: 10px; color: #6c716b; text-align: left; border-bottom: 1px solid #c9ccc2; }
   #print-report-content td { padding: 6px 8px; border-bottom: 1px solid #eef0e9; }
-  #print-report-content td:last-child { text-align: right; font-weight: 600; }
+  #print-report-content td:last-child:not(:only-child) { text-align: right; font-weight: 600; }
+  #print-report-content svg { max-width: 100% !important; height: auto !important; page-break-inside: avoid; }
   #print-report-content .stat-grid {
     display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
   }
