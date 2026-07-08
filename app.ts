@@ -2,7 +2,7 @@
 
 import { createReadStream, existsSync } from "node:fs";
 import { appendFile, mkdir, readFile, readdir, rename, stat, writeFile } from "node:fs/promises";
-import { createServer, type ServerResponse } from "node:http";
+import { createServer, IncomingMessage, type ServerResponse } from "node:http";
 import { extname, join, relative, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
@@ -40,8 +40,17 @@ const INPUT_DIR = join(ROOT, "data", "input");
 const DATA_DIR = join(ROOT, "data", "cache");
 const DAYS_DIR = join(DATA_DIR, "days");
 const MANIFEST_PATH = join(DATA_DIR, "manifest.json");
+const CONFIG_PATH = join(DATA_DIR, "trip-config.json");
 const PUBLIC_DIR = join(ROOT, "public");
 const PORT = Number(process.env.PORT || 4173);
+
+async function loadConfig(): Promise<{ highlights: any[]; stopsOverrides: Record<string, string> }> {
+  try {
+    return JSON.parse(await readFile(CONFIG_PATH, "utf8"));
+  } catch {
+    return { highlights: [], stopsOverrides: {} };
+  }
+}
 const MAX_MAP_POINTS = 25_000;
 const SUPPORTED_EXTENSIONS = new Set([".txt", ".gpx", ".geojson", ".json"]);
 
@@ -357,8 +366,26 @@ async function serveStatic(pathname: string, response: ServerResponse): Promise<
   }
 }
 
-async function handleRequest(requestUrl: string, response: ServerResponse): Promise<void> {
-  const url = new URL(requestUrl, `http://localhost:${PORT}`);
+async function handleRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
+  const url = new URL(request.url || "/", `http://localhost:${PORT}`);
+  if (request.method === "GET" && url.pathname === "/api/config") {
+    const config = await loadConfig();
+    return json(response, 200, config);
+  }
+  if (request.method === "POST" && url.pathname === "/api/config") {
+    let body = "";
+    request.on("data", (chunk) => { body += chunk; });
+    request.on("end", async () => {
+      try {
+        const config = JSON.parse(body);
+        await writeFile(CONFIG_PATH, JSON.stringify(config, null, 2));
+        return json(response, 200, { success: true });
+      } catch (error) {
+        return json(response, 400, { error: "Invalid configuration JSON" });
+      }
+    });
+    return;
+  }
   if (url.pathname === "/api/meta") {
     const manifest = await loadManifest();
     return json(response, 200, {
@@ -396,7 +423,7 @@ async function handleRequest(requestUrl: string, response: ServerResponse): Prom
 
 async function serve(): Promise<void> {
   const server = createServer((request, response) => {
-    handleRequest(request.url || "/", response).catch((error) => {
+    handleRequest(request, response).catch((error) => {
       console.error(error);
       json(response, 500, { error: "Internal server error" });
     });

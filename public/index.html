@@ -19,12 +19,23 @@
 
     <main>
       <aside class="controls">
-        <section>
+        <section id="time-section">
           <p class="section-no">01 / TIME WINDOW</p>
-          <label>From <input id="start" type="datetime-local" step="1"></label>
-          <label>Until <input id="end" type="datetime-local" step="1"></label>
-          <button id="latest" class="text-button">Use latest day</button>
-          <button id="load">Load route <span>↗</span></button>
+          <div class="time-form">
+            <label>Quick Select Day
+              <select id="day-picker" style="width: 100%; margin-top: 6px;">
+                <option value="">-- Choose a day --</option>
+              </select>
+            </label>
+            <label>From <input id="start" type="date"></label>
+            <label>Until <input id="end" type="date"></label>
+            <button id="latest" class="text-button">Use latest day</button>
+            <button id="load">Load route <span>↗</span></button>
+          </div>
+          <div class="time-summary">
+            <span id="range-display"></span>
+            <button id="expand-time" class="text-button">Change</button>
+          </div>
         </section>
         <section>
           <p class="section-no">02 / EXPORT</p>
@@ -40,6 +51,48 @@
           <div><span>Peak speed</span><strong id="peak">—</strong></div>
           <div><span>Selected window</span><strong id="duration">—</strong></div>
           <div><span>Sources</span><strong id="source-count">—</strong></div>
+        </section>
+        <section class="settings-section">
+          <p class="section-no">04 / DISPLAY OPTIONS</p>
+          <label class="inline-toggle"><input id="snap-roads" type="checkbox"> Snap route to roads (OSRM)</label>
+          <label class="inline-toggle"><input id="show-stops" type="checkbox" checked> Show stops on map</label>
+          <label class="inline-toggle"><input id="show-highlights" type="checkbox" checked> Show highlights on map</label>
+          <label class="inline-toggle"><input id="show-labels" type="checkbox" checked> Show labels on map</label>
+        </section>
+        <section class="stops-section">
+          <p class="section-no">05 / DETECTED STOPS</p>
+          <div id="stops-list" class="list-container">
+            <p class="empty-note">No stops detected</p>
+          </div>
+        </section>
+        <section class="highlights-section">
+          <p class="section-no">06 / HIGHLIGHTED PLACES</p>
+          <div class="search-wrapper" style="position: relative;">
+            <div class="search-row">
+              <input id="highlight-search" type="text" placeholder="Search & add place (e.g. Ujjain)...">
+              <button id="search-btn" class="icon-button" aria-label="Search">🔍</button>
+            </div>
+            <div id="search-results" class="search-results-dropdown hidden"></div>
+          </div>
+          <small style="display: block; margin-top: 5px; font-family: 'DM Mono', monospace; font-size: 9px; color: var(--muted); line-height: 1.3;">
+            * You can also click directly on the map to highlight a place.
+          </small>
+          <button id="add-custom-highlight" class="secondary" style="width: 100%; margin-top: 10px;">Add Custom Pin at Center</button>
+          
+          <button id="toggle-categories-btn" class="text-button" style="padding-top: 6px; margin: 4px 0 0; text-align: left; display: block;">🛠️ Manage Categories</button>
+          <div id="categories-editor" class="hidden" style="border: 1px dashed var(--line); padding: 8px; margin-top: 8px; background: #fdfdfa;">
+            <p style="font-size: 9px; font-weight: 700; margin: 0 0 6px; font-family: 'DM Mono', monospace;">CUSTOM CATEGORIES</p>
+            <div id="categories-list" style="display:flex; flex-direction:column; gap:4px; max-height: 100px; overflow-y:auto; margin-bottom: 8px; font-family: 'DM Mono', monospace; font-size: 10px;"></div>
+            <div style="display:flex; gap: 4px; align-items: center;">
+              <input id="new-cat-emoji" type="text" placeholder="Emoji" style="width: 45px; padding: 4px; font-size:11px;" maxlength="2">
+              <input id="new-cat-label" type="text" placeholder="Category Name" style="flex:1; padding: 4px; font-size:11px;">
+              <button id="add-cat-btn" class="icon-button" style="padding: 4px 8px; font-size:10px;">Add</button>
+            </div>
+          </div>
+
+          <div id="highlights-list" class="list-container" style="margin-top: 12px;">
+            <p class="empty-note">No highlighted places</p>
+          </div>
         </section>
       </aside>
 
