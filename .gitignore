@@ -9,3 +9,4 @@ assets/videos/*
 !assets/videos/.gitkeep
 .DS_Store
 *.log
+.antigravitycli/
