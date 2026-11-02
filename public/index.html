@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Route Studio</title>
+    <link rel="icon" href="data:,">
     <link rel="preconnect" href="https://unpkg.com">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <link rel="stylesheet" href="/styles.css">
@@ -22,10 +23,7 @@
   </head>
   <body>
     <header>
-      <div>
-        <p class="eyebrow">Dashcam telemetry / local workspace</p>
-        <h1>Route <i>Studio</i></h1>
-      </div>
+      <h1>Route <i>Studio</i></h1>
       <div class="status"><span></span><b id="index-status">Reading index</b></div>
     </header>
 
@@ -65,21 +63,44 @@
           <div><span>Selected window</span><strong id="duration">—</strong></div>
           <div><span>Sources</span><strong id="source-count">—</strong></div>
         </section>
+        <section class="traffic-section">
+          <p class="section-no">04 / TRAFFIC, STOPS EXCLUDED</p>
+          <label class="inline-toggle"><input id="traffic-on" type="checkbox"> Color route and chart by speed</label>
+          <div id="traffic-bar" class="traffic-bar"></div>
+          <div id="traffic-bands" class="traffic-bands"></div>
+          <div class="traffic-stats">
+            <div><span>Moving time</span><strong id="moving-time">-</strong></div>
+            <div><span>Avg moving speed</span><strong id="moving-speed">-</strong></div>
+            <div><span>Stops and gaps left out</span><strong id="excluded-time">-</strong></div>
+          </div>
+          <label class="stop-threshold">Count as a stop after
+            <select id="stop-min" aria-label="Count as a stop after">
+              <option value="60000">1 min</option>
+              <option value="180000" selected>3 min</option>
+              <option value="300000">5 min</option>
+              <option value="900000">15 min</option>
+            </select>
+          </label>
+          <h3 class="stretch-heading">Most time, slowest road</h3>
+          <div id="slowest-list" class="stretch-list"></div>
+          <h3 class="stretch-heading">Fastest road</h3>
+          <div id="fastest-list" class="stretch-list"></div>
+        </section>
         <section class="settings-section">
-          <p class="section-no">04 / DISPLAY OPTIONS</p>
+          <p class="section-no">05 / DISPLAY OPTIONS</p>
           <label class="inline-toggle"><input id="snap-roads" type="checkbox"> Snap route to roads (OSRM)</label>
           <label class="inline-toggle"><input id="show-stops" type="checkbox" checked> Show stops on map</label>
           <label class="inline-toggle"><input id="show-highlights" type="checkbox" checked> Show highlights on map</label>
           <label class="inline-toggle"><input id="show-labels" type="checkbox" checked> Show labels on map</label>
         </section>
         <section class="stops-section">
-          <p class="section-no">05 / DETECTED STOPS</p>
+          <p class="section-no">06 / DETECTED STOPS</p>
           <div id="stops-list" class="list-container">
             <p class="empty-note">No stops detected</p>
           </div>
         </section>
         <section class="highlights-section">
-          <p class="section-no">06 / HIGHLIGHTED PLACES</p>
+          <p class="section-no">07 / HIGHLIGHTED PLACES</p>
           <div class="search-wrapper" style="position: relative;">
             <div class="search-row">
               <input id="highlight-search" type="text" placeholder="Search & add place (e.g. Ujjain)...">
@@ -116,6 +137,7 @@
       <section class="workspace">
         <div id="map"></div>
         <div class="map-label">LIVE ROUTE / <span id="range-label">SELECT A RANGE</span></div>
+        <div id="map-legend" class="map-legend hidden"></div>
         <div class="telemetry">
           <div class="chart-title">
             <div>

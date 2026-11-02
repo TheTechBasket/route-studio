@@ -1,4 +1,7 @@
+import { BANDS, analyzeTraffic, bandIndex } from "./traffic.js";
+
 const $ = (selector) => document.querySelector(selector);
+const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
 const map = L.map("map", { zoomControl: false, preferCanvas: true }).setView([25.7, 78.7], 8);
 L.control.zoom({ position: "topright" }).addTo(map);
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -51,6 +54,12 @@ let categories = [
 let snappedLatLngs = null;
 let snappedLayer = null;
 
+let analysis = null;
+let routeSummary = null;
+let trafficLayer = null;
+let stretchLayer = null;
+let chartCache = null;
+
 const toast = (message) => {
   $("#toast").textContent = message;
   $("#toast").classList.add("show");
@@ -94,6 +103,7 @@ async function initialize() {
     const configRes = await fetch("/api/config");
     const configData = await configRes.json();
     stopsOverrides = configData.stopsOverrides || {};
+    dismissedStops = new Set(configData.dismissedStops || []);
     highlights = configData.highlights || [];
     if (configData.categories) {
       categories = configData.categories;
@@ -157,31 +167,20 @@ function chartValues() {
   return points.map((point) => displayValue(point).value);
 }
 
-function drawChart(activeIndex = -1) {
-  const canvas = $("#chart");
-  const ratio = devicePixelRatio || 1;
-  const width = canvas.clientWidth;
-  const height = canvas.clientHeight;
-  canvas.width = width * ratio;
-  canvas.height = height * ratio;
-  const context = canvas.getContext("2d");
-  context.scale(ratio, ratio);
-  context.clearRect(0, 0, width, height);
-  if (!points.length) return;
-  const values = chartValues();
-  const valid = values.filter(Number.isFinite);
-  if (!valid.length) return;
-  const minimum = Math.min(0, ...valid);
-  const maximum = Math.max(10, ...valid);
-  const span = Math.max(1, maximum - minimum);
-  const x = (index) => index / Math.max(1, points.length - 1) * width;
-  const y = (value) => height - 7 - ((value ?? minimum) - minimum) / span * (height - 15);
+function isTrafficChart() {
+  return $("#traffic-on").checked && $("#metric").value === "speed" && analysis;
+}
 
-  context.beginPath();
-  values.forEach((value, index) => {
-    const current = Number.isFinite(value) ? value : minimum;
-    index ? context.lineTo(x(index), y(current)) : context.moveTo(x(index), y(current));
-  });
+function drawLineChart(context, width, height, values, y, minimum) {
+  const x = (index) => index / Math.max(1, points.length - 1) * width;
+  const tracePath = () => {
+    context.beginPath();
+    values.forEach((value, index) => {
+      const current = Number.isFinite(value) ? value : minimum;
+      index ? context.lineTo(x(index), y(current)) : context.moveTo(x(index), y(current));
+    });
+  };
+  tracePath();
   context.lineTo(width, height);
   context.lineTo(0, height);
   context.closePath();
@@ -190,17 +189,78 @@ function drawChart(activeIndex = -1) {
   gradient.addColorStop(1, "#c9ff3d05");
   context.fillStyle = gradient;
   context.fill();
-  context.beginPath();
-  values.forEach((value, index) => {
-    const current = Number.isFinite(value) ? value : minimum;
-    index ? context.lineTo(x(index), y(current)) : context.moveTo(x(index), y(current));
-  });
+  tracePath();
   context.strokeStyle = "#c9ff3d";
   context.lineWidth = 1.5;
   context.stroke();
+}
+
+// One bar per pixel, time-weighted, so a stop reads as an empty slot rather than as a zero-speed dip.
+function drawTrafficChart(context, width, height, y, maximum) {
+  const columns = Array.from({ length: Math.ceil(width) }, () => ({ weight: 0, sum: 0 }));
+  for (let index = 1; index < points.length; index += 1) {
+    const column = columns[Math.floor(index / points.length * width)];
+    if (analysis.segBand[index] < 0) continue;
+    const weight = Math.max(1, points[index].timestamp - points[index - 1].timestamp);
+    column.weight += weight;
+    column.sum += analysis.smooth[index] * weight;
+  }
+  const factor = $("#unit").value === "mph" ? 0.621371 : 1;
+  columns.forEach((column, x) => {
+    if (!column.weight) {
+      context.fillStyle = "#ffffff12";
+      context.fillRect(x, 0, 1, height);
+      return;
+    }
+    const kmh = column.sum / column.weight;
+    const top = y(kmh * factor);
+    context.fillStyle = BANDS[bandIndex(kmh)].chartColor;
+    context.fillRect(x, top, 1, height - top);
+  });
+  context.fillStyle = "#aeb3ab";
+  context.font = '10px "DM Mono", monospace';
+  context.fillText(`${Math.round(maximum)} ${$("#unit").value === "mph" ? "mph" : "km/h"}`, 2, 10);
+}
+
+function renderChart(width, height, ratio) {
+  const image = document.createElement("canvas");
+  image.width = width * ratio;
+  image.height = height * ratio;
+  const context = image.getContext("2d");
+  context.scale(ratio, ratio);
+  const values = chartValues();
+  const valid = values.filter(Number.isFinite);
+  if (!valid.length) return image;
+  const minimum = Math.min(0, ...valid);
+  const maximum = Math.max(10, ...valid);
+  const span = Math.max(1, maximum - minimum);
+  const y = (value) => height - 7 - ((value ?? minimum) - minimum) / span * (height - 15);
+  if (isTrafficChart()) drawTrafficChart(context, width, height, y, maximum);
+  else drawLineChart(context, width, height, values, y, minimum);
+  return image;
+}
+
+// Cached because replay redraws every frame and the route can hold 25,000 points.
+function drawChart(activeIndex = -1) {
+  const canvas = $("#chart");
+  const ratio = devicePixelRatio || 1;
+  const width = canvas.clientWidth;
+  const height = canvas.clientHeight;
+  if (canvas.width !== width * ratio || canvas.height !== height * ratio) {
+    canvas.width = width * ratio;
+    canvas.height = height * ratio;
+  }
+  const context = canvas.getContext("2d");
+  context.setTransform(ratio, 0, 0, ratio, 0, 0);
+  context.clearRect(0, 0, width, height);
+  if (!points.length) return;
+  const key = [width, height, ratio, $("#metric").value, $("#unit").value, !!isTrafficChart()].join();
+  if (chartCache?.key !== key) chartCache = { key, image: renderChart(width, height, ratio) };
+  context.drawImage(chartCache.image, 0, 0, width, height);
   if (activeIndex >= 0) {
+    const x = activeIndex / Math.max(1, points.length - 1) * width;
     context.fillStyle = "#fff";
-    context.fillRect(x(activeIndex) - 1, 0, 2, height);
+    context.fillRect(x - 1, 0, 2, height);
   }
 }
 
@@ -306,9 +366,12 @@ function playReplay() {
       return 0;
     })();
     if (stopPause > 0) {
+      const pauseMs = stopPause / Math.min(rate, 20);
       setTimeout(() => {
-        if (replayFrame !== null) replayFrame = requestAnimationFrame(tick);
-      }, stopPause / Math.min(rate, 20));
+        if (replayFrame === null) return;
+        replayStartedAt += pauseMs;
+        replayFrame = requestAnimationFrame(tick);
+      }, pauseMs);
       return;
     }
     if (index >= points.length - 1) return stopReplay();
@@ -331,7 +394,7 @@ async function loadRoute() {
     const feature = data.features[0];
     const coordinates = feature.geometry.coordinates;
     const properties = feature.properties;
-    const summary = properties.summary;
+    const summary = routeSummary = properties.summary;
     points = coordinates.map(([longitude, latitude, altitude], index) => ({
       longitude,
       latitude,
@@ -348,6 +411,7 @@ async function loadRoute() {
       video: properties.videos[index],
     }));
     if (!points.length) return toast("No valid GPS points in that period");
+    chartCache = null;
     routeLayer?.remove();
     traveledLayer?.remove();
     marker?.remove();
@@ -366,7 +430,7 @@ async function loadRoute() {
     $("#scrubber").value = 0;
     $("#point-count").textContent = summary.pointCount.toLocaleString();
     $("#distance").textContent = `${summary.distanceKm.toFixed(1)} km`;
-    $("#peak").textContent = `${summary.peakSpeed.toFixed(1)} km/h`;
+    $("#peak").textContent = formatSpeed(summary.peakSpeed, 1);
     $("#duration").textContent = formatDuration(summary.selectedDurationMs);
     $("#source-count").textContent = summary.sourceCount;
     $("#range-label").textContent = `${new Date(start).toLocaleString()} → ${new Date(end).toLocaleString()}`;
@@ -380,7 +444,7 @@ async function loadRoute() {
         renderStopsList();
         const marker = stopMarkers.find(m => m.getLatLng().lat === stop.latitude && m.getLatLng().lng === stop.longitude);
         if (marker) {
-          marker.setTooltipContent(`${formatDuration(stop.duration)} — ${stop.name}`);
+          marker.setTooltipContent(stopLabel(stop));
         }
       });
     });
@@ -390,14 +454,14 @@ async function loadRoute() {
       snappedLayer.remove();
       snappedLayer = null;
     }
-    if ($("#snap-roads").checked) {
-      await updateRoadSnapping();
-    }
 
     renderStopsList();
     renderStopsOnMap();
     renderHighlightsOnMap();
     renderHighlightsList();
+    refreshTraffic();
+    if ($("#snap-roads").checked) updateRoadSnapping();
+    $("#day-picker").value = toInputValue(start) === toInputValue(end) ? toInputValue(start) : "";
 
     $("#range-display").textContent = `${toInputValue(start)} → ${toInputValue(end)}`;
     $("#time-section").classList.add("loaded");
@@ -416,7 +480,123 @@ function formatDuration(milliseconds) {
   const days = Math.floor(totalMinutes / 1440);
   const hours = Math.floor(totalMinutes / 60) % 24;
   const minutes = totalMinutes % 60;
-  return days > 0 ? `${days}d ${hours}h` : `${hours}h ${minutes}m`;
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return totalMinutes > 0 ? `${minutes}m` : "<1m";
+}
+
+function formatSpeed(kmh, digits = 0) {
+  const mph = $("#unit").value === "mph";
+  return `${(mph ? kmh * 0.621371 : kmh).toFixed(digits)} ${mph ? "mph" : "km/h"}`;
+}
+
+function bandRangeLabel(band, index) {
+  const [top, unit] = formatSpeed(band.below === Infinity ? BANDS[index - 1].below : band.below).split(" ");
+  if (band.below === Infinity) return `${top}+ ${unit}`;
+  return index ? `${formatSpeed(BANDS[index - 1].below).split(" ")[0]}-${top} ${unit}` : `under ${top} ${unit}`;
+}
+
+function stopLabel(stop) {
+  return stop.name ? `${formatDuration(stop.duration)}, ${esc(stop.name)}` : formatDuration(stop.duration);
+}
+
+function visibleStops() {
+  return detectedStops.filter((stop) => !dismissedStops.has(stop.id));
+}
+
+function refreshTraffic() {
+  analysis = analyzeTraffic(points, { stops: visibleStops(), stopMinMs: Number($("#stop-min").value) });
+  chartCache = null;
+  for (const stretch of [...analysis.slowest, ...analysis.fastest]) {
+    const middle = points[Math.round((stretch.startIndex + stretch.endIndex) / 2)];
+    queueGeocode(middle.latitude, middle.longitude, (name) => {
+      stretch.name = name;
+      renderTrafficPanel();
+    }, true);
+  }
+  clearStretchHighlight();
+  renderTrafficPanel();
+  renderTrafficLayer();
+  drawChart(Number($("#scrubber").value));
+}
+
+function renderTrafficPanel() {
+  if (!analysis) return;
+  const hasData = analysis.movingMs > 0;
+  $("#traffic-bar").innerHTML = hasData
+    ? analysis.bands.filter((band) => band.ms > 0).map((band) => `<i style="flex:${band.ms} 1 0;background:${band.color}" title="${band.label}: ${band.pct.toFixed(0)}%"></i>`).join("")
+    : "";
+  $("#traffic-bands").innerHTML = analysis.bands.map((band, index) => `
+    <div><i style="background:${band.color}"></i><span>${band.label} ${bandRangeLabel(band, index)}</span><b>${hasData ? formatDuration(band.ms) : "-"}</b><em>${hasData ? `${band.pct.toFixed(0)}%` : ""}</em></div>
+  `).join("");
+  $("#moving-time").textContent = hasData ? formatDuration(analysis.movingMs) : "-";
+  $("#moving-speed").textContent = hasData ? formatSpeed(analysis.avgKmh) : "-";
+  $("#excluded-time").textContent = formatDuration(analysis.excludedMs);
+  renderStretchList($("#slowest-list"), analysis.slowest);
+  renderStretchList($("#fastest-list"), analysis.fastest);
+  $("#map-legend").innerHTML = analysis.bands.map((band, index) => `<span><i style="background:${band.color}"></i>${band.label} ${bandRangeLabel(band, index)}</span>`).join("");
+}
+
+function renderStretchList(container, stretches) {
+  if (!stretches.length) {
+    container.innerHTML = '<p class="empty-note">No moving stretch long enough</p>';
+    return;
+  }
+  container.innerHTML = "";
+  stretches.forEach((stretch) => {
+    const started = new Date(points[stretch.startIndex].timestamp);
+    const button = document.createElement("button");
+    button.className = "stretch";
+    button.innerHTML = `
+      <i style="background:${BANDS[bandIndex(stretch.kmh)].color}"></i>
+      <span>${esc(stretch.name ? `Near ${stretch.name}` : `Stretch at ${started.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`)}</span>
+      <strong>${formatDuration(stretch.ms)}</strong>
+      <small>${stretch.km.toFixed(1)} km at ${formatSpeed(stretch.kmh)}, ${started.toLocaleDateString([], { day: "numeric", month: "short" })} ${started.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</small>
+    `;
+    button.addEventListener("click", () => showStretch(stretch));
+    container.appendChild(button);
+  });
+}
+
+function clearStretchHighlight() {
+  stretchLayer?.remove();
+  stretchLayer = null;
+}
+
+function showStretch(stretch) {
+  clearStretchHighlight();
+  const latLngs = points.slice(stretch.startIndex, stretch.endIndex + 1).map((point) => [point.latitude, point.longitude]);
+  stretchLayer = L.polyline(latLngs, { color: "#c9ff3d", weight: 13, opacity: .9, interactive: false }).addTo(map).bringToBack();
+  const bounds = stretchLayer.getBounds().pad(.5);
+  if (reduceMotion) map.fitBounds(bounds, { maxZoom: 15 });
+  else map.flyToBounds(bounds, { maxZoom: 15, duration: .6 });
+  stopReplay();
+  setReplayIndex(stretch.startIndex);
+}
+
+function renderTrafficLayer() {
+  trafficLayer?.remove();
+  trafficLayer = null;
+  const isOn = $("#traffic-on").checked && analysis;
+  $("#map-legend").classList.toggle("hidden", !isOn);
+  applyRouteStyle();
+  if (!isOn) return;
+  trafficLayer = L.layerGroup(analysis.runs.map((run) => {
+    const band = BANDS[run.band];
+    const latLngs = points.slice(run.startIndex, run.endIndex + 1).map((point) => [point.latitude, point.longitude]);
+    const kmh = run.ms > 0 ? run.km / (run.ms / 3_600_000) : 0;
+    return L.polyline(latLngs, { color: band.color, weight: 4, opacity: 1 })
+      .bindTooltip(`${band.label}: ${run.km.toFixed(1)} km, ${formatDuration(run.ms)}, ${formatSpeed(kmh)}`, { sticky: true, className: "run-tooltip" });
+  })).addTo(map);
+  [startMarker, endMarker, ...stopMarkers, marker].forEach((item) => item?.bringToFront());
+}
+
+// One place decides which line is visible: traffic colors need the real GPS track.
+function applyRouteStyle() {
+  const isTraffic = $("#traffic-on").checked;
+  routeLayer?.setStyle({ color: "#171a18", weight: isTraffic ? 7 : 5, opacity: !isTraffic && snappedLayer ? 0 : .72 });
+  snappedLayer?.setStyle({ opacity: isTraffic ? 0 : .9 });
+  traveledLayer?.setStyle({ opacity: isTraffic ? 0 : 1 });
 }
 
 $("#load").addEventListener("click", loadRoute);
@@ -424,7 +604,24 @@ $("#latest").addEventListener("click", useLatestDay);
 $("#play").addEventListener("click", playReplay);
 $("#scrubber").addEventListener("input", (event) => { stopReplay(); setReplayIndex(event.target.value); });
 $("#metric").addEventListener("change", () => setReplayIndex($("#scrubber").value));
-$("#unit").addEventListener("change", () => setReplayIndex($("#scrubber").value));
+$("#unit").addEventListener("change", () => {
+  setReplayIndex($("#scrubber").value);
+  if (routeSummary) $("#peak").textContent = formatSpeed(routeSummary.peakSpeed, 1);
+  renderTrafficPanel();
+  renderTrafficLayer();
+});
+$("#traffic-on").addEventListener("change", () => {
+  renderTrafficLayer();
+  drawChart(Number($("#scrubber").value));
+});
+$("#stop-min").addEventListener("change", () => {
+  if (points.length) refreshTraffic();
+});
+$("#rate").addEventListener("change", () => {
+  if (replayFrame === null) return;
+  replayBaseIndex = lastReplayIndex;
+  replayStartedAt = performance.now();
+});
 $("#start").addEventListener("change", updateExportLinks);
 $("#end").addEventListener("change", updateExportLinks);
 window.addEventListener("resize", () => drawChart(Number($("#scrubber").value)));
@@ -435,7 +632,7 @@ async function saveConfig() {
     await fetch("/api/config", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ stopsOverrides, highlights, categories })
+      body: JSON.stringify({ stopsOverrides, dismissedStops: [...dismissedStops], highlights, categories })
     });
   } catch (e) {
     console.error("Could not save config", e);
@@ -446,31 +643,33 @@ async function saveConfig() {
 // Nominatim Geocoding queue to respect rate limits (max 1 req/sec)
 let geocodeQueue = [];
 let geocodeTimeout = null;
+const geocodeCache = new Map();
 
 function processGeocodeQueue() {
+  geocodeTimeout = null;
   if (geocodeQueue.length === 0) return;
   const task = geocodeQueue.shift();
+  geocodeTimeout = -1;
   task().then(() => {
     geocodeTimeout = setTimeout(processGeocodeQueue, 1100);
   });
 }
 
-function queueGeocode(lat, lng, callback) {
-  geocodeQueue.push(async () => {
+function queueGeocode(lat, lng, callback, isUrgent = false) {
+  const cacheKey = `${lat.toFixed(2)},${lng.toFixed(2)}`;
+  if (geocodeCache.has(cacheKey)) return callback(geocodeCache.get(cacheKey));
+  geocodeQueue[isUrgent ? "unshift" : "push"](async () => {
     try {
-      const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=12`, {
-        headers: { "User-Agent": "RouteStudio/1.0" }
-      });
+      const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&accept-language=en&lat=${lat}&lon=${lng}&zoom=12`);
       const data = await res.json();
       const name = data.address.city || data.address.town || data.address.village || data.address.suburb || data.display_name.split(',')[0] || "Unknown Place";
+      geocodeCache.set(cacheKey, name);
       callback(name);
     } catch (e) {
       console.error(e);
     }
   });
-  if (!geocodeTimeout && geocodeQueue.length === 1) {
-    processGeocodeQueue();
-  }
+  if (geocodeTimeout === null) processGeocodeQueue();
 }
 
 function detectStops(routePoints) {
@@ -558,7 +757,7 @@ function findClosestRoutePoint(lat, lng) {
 
 function renderStopsList() {
   const container = $("#stops-list");
-  const visible = detectedStops.filter(s => !dismissedStops.has(s.id));
+  const visible = visibleStops();
   if (!visible.length) {
     container.innerHTML = `<p class="empty-note">${detectedStops.length ? 'All stops dismissed' : 'No stops detected'}</p>`;
     return;
@@ -574,7 +773,7 @@ function renderStopsList() {
     card.innerHTML = `
       <span class="inline-block w-2.5 h-2.5 rounded-full shrink-0 ${isNight ? 'bg-ink' : 'bg-lime'} ${isNight ? '' : 'border border-ink'}"></span>
       <span class="font-mono text-[10px] font-semibold shrink-0 ${isNight ? 'text-ink' : 'text-muted'}">${durationStr}</span>
-      <span class="flex-1 text-[11px] truncate">${stop.name || `Stop ${startTimeStr}`}</span>
+      <span class="flex-1 text-[11px] truncate">${esc(stop.name || `Stop ${startTimeStr}`)}</span>
       <span class="font-mono text-[9px] text-muted shrink-0 hidden sm:inline">${new Date(stop.startTimestamp).toLocaleDateString()}</span>
       <span class="text-[10px] text-muted shrink-0 cursor-pointer hover:text-ink px-1 dismiss-btn" title="Dismiss stop">✕</span>
     `;
@@ -593,8 +792,10 @@ function renderStopsList() {
     card.querySelector('.dismiss-btn').addEventListener('click', (e) => {
       e.stopPropagation();
       dismissedStops.add(stop.id);
+      saveConfig();
       renderStopsList();
       renderStopsOnMap();
+      refreshTraffic();
     });
 
     card.addEventListener('click', () => {
@@ -611,7 +812,7 @@ function renderStopsOnMap() {
 
   if (!$("#show-stops").checked) return;
 
-  detectedStops.filter(s => !dismissedStops.has(s.id)).forEach(stop => {
+  visibleStops().forEach(stop => {
     const isNight = stop.type === "night";
     const m = L.circleMarker([stop.latitude, stop.longitude], {
       radius: isNight ? 9 : 6,
@@ -620,7 +821,7 @@ function renderStopsOnMap() {
       weight: 2.5,
       fillOpacity: 1
     })
-      .bindTooltip(formatDuration(stop.duration), {
+      .bindTooltip(stopLabel(stop), {
         direction: 'top',
         className: 'custom-tooltip'
       })
@@ -630,7 +831,7 @@ function renderStopsOnMap() {
       const container = document.createElement("div");
       container.className = "highlight-info-popup";
       container.innerHTML = `
-        <h3>${stop.name || 'Stop'}</h3>
+        <h3>${esc(stop.name || 'Stop')}</h3>
         <p class="category">${isNight ? 'Night Stay' : 'Rest Stop'}</p>
         <p style="margin: 0; font-size: 10px; color: var(--muted);">Duration: ${formatDuration(stop.duration)}</p>
         <p style="margin: 4px 0 8px; font-size: 10px; color: var(--muted);">${new Date(stop.startTimestamp).toLocaleString()}</p>
@@ -674,8 +875,8 @@ function renderHighlightsList() {
 
     card.innerHTML = `
       <div class="card-header">
-        <span class="card-title">${place.name}</span>
-        <span class="highlight-tag">${catName}</span>
+        <span class="card-title">${esc(place.name)}</span>
+        <span class="highlight-tag">${esc(catName)}</span>
       </div>
       <div class="card-subtitle" style="font-family: 'DM Mono', monospace; font-size: 9px; color: var(--muted);">
         ${place.timestamp ? new Date(place.timestamp).toLocaleString() : 'Global Pin'}
@@ -754,8 +955,8 @@ function renderHighlightsOnMap() {
       const container = document.createElement("div");
       container.className = "highlight-info-popup";
       container.innerHTML = `
-        <h3>${place.name}</h3>
-        <p class="category">${cat.emoji || '📍'} ${cat.label}</p>
+        <h3>${esc(place.name)}</h3>
+        <p class="category">${esc(cat.emoji || '📍')} ${esc(cat.label)}</p>
         <p style="margin: 0 0 8px; font-family: 'DM Mono', monospace; font-size: 9px; color: var(--muted);">
           ${place.timestamp ? new Date(place.timestamp).toLocaleString() : 'Global Pin'}
         </p>
@@ -796,6 +997,7 @@ function openHighlightForm(lat, lng, existingHighlight = null) {
   map.closePopup();
   
   const tempMarker = L.marker([lat, lng]).addTo(map);
+  tempMarker.on("popupclose", () => tempMarker.remove());
   
   const container = document.createElement("div");
   container.className = "highlight-popup";
@@ -813,12 +1015,12 @@ function openHighlightForm(lat, lng, existingHighlight = null) {
   const timeInputValue = toInputValue(initialTime);
 
   const optionsHtml = categories.map(cat => 
-    `<option value="${cat.type}" ${placeType === cat.type ? 'selected' : ''}>${cat.emoji} ${cat.label}</option>`
+    `<option value="${esc(cat.type)}" ${placeType === cat.type ? 'selected' : ''}>${esc(cat.emoji)} ${esc(cat.label)}</option>`
   ).join("");
   
   container.innerHTML = `
     <h3>${title}</h3>
-    <input type="text" id="popup-place-name" placeholder="Place name (e.g. Omkareshwar)" value="${placeName}">
+    <input type="text" id="popup-place-name" placeholder="Place name (e.g. Omkareshwar)" value="${esc(placeName)}">
     <select id="popup-place-type">
       ${optionsHtml}
     </select>
@@ -841,9 +1043,7 @@ function openHighlightForm(lat, lng, existingHighlight = null) {
     const input = container.querySelector("#popup-place-name");
     input.placeholder = "Loading location name...";
     
-    fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=12`, {
-      headers: { "User-Agent": "RouteStudio/1.0" }
-    })
+    fetch(`https://nominatim.openstreetmap.org/reverse?format=json&accept-language=en&lat=${lat}&lon=${lng}&zoom=12`)
       .then(res => res.json())
       .then(data => {
         const address = data.address;
@@ -897,8 +1097,11 @@ function openHighlightForm(lat, lng, existingHighlight = null) {
 }
 
 // Map Click Listener to add highlights
+// A click that closes an open popup only closes it.
+let clickClosesPopup = false;
+map.on("preclick", () => { clickClosesPopup = !!document.querySelector("#map .leaflet-popup"); });
 map.on("click", (e) => {
-  openHighlightForm(e.latlng.lat, e.latlng.lng);
+  if (!clickClosesPopup) openHighlightForm(e.latlng.lat, e.latlng.lng);
 });
 
 // Custom pin at center button
@@ -917,9 +1120,7 @@ function performSearch() {
     return;
   }
   
-  fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5`, {
-    headers: { "User-Agent": "RouteStudio/1.0" }
-  })
+  fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5`)
     .then(res => res.json())
     .then(data => {
       const resultsDiv = $("#search-results");
@@ -985,7 +1186,7 @@ function renderCategoriesList() {
     const isDefault = ["jyotirlinga", "city", "scenic", "stay", "food", "other"].includes(cat.type);
     
     div.innerHTML = `
-      <span>${cat.emoji} ${cat.label}</span>
+      <span>${esc(cat.emoji)} ${esc(cat.label)}</span>
       ${isDefault ? '<span style="font-size:8px; color:var(--muted);">Default</span>' : `<button class="text-button btn-del-cat" data-index="${index}" style="color:#ff5252; padding:0; margin:0;">Delete</button>`}
     `;
     
@@ -1058,7 +1259,8 @@ async function fetchSnappedRoute() {
     throw new Error("Could not match route to road network");
   }
   
-  snappedLatLngs = data.matchings[0].geometry.coordinates.map(([lon, lat]) => [lat, lon]);
+  // OSRM splits a route it cannot match in one piece; keep every piece, not just the first.
+  snappedLatLngs = data.matchings.map((matching) => matching.geometry.coordinates.map(([lon, lat]) => [lat, lon]));
   return snappedLatLngs;
 }
 
@@ -1071,7 +1273,7 @@ async function updateRoadSnapping() {
       const latLngs = await fetchSnappedRoute();
       if (snappedLayer) snappedLayer.remove();
       snappedLayer = L.polyline(latLngs, { color: "#3f51b5", weight: 5, opacity: 0.9, dashArray: "10, 5" }).addTo(map);
-      if (routeLayer) routeLayer.setStyle({ opacity: 0 }); // Hide raw route completely
+      applyRouteStyle();
       toast("Route snapped to roads!");
     } catch (e) {
       console.error(e);
@@ -1083,7 +1285,7 @@ async function updateRoadSnapping() {
       snappedLayer.remove();
       snappedLayer = null;
     }
-    if (routeLayer) routeLayer.setStyle({ color: "#171a18", weight: 5, opacity: 0.72 }); // Restore raw route
+    applyRouteStyle();
   }
 }
 
@@ -1122,10 +1324,6 @@ function computeTripStats(routePoints, stops) {
   const highEl = alts.length ? Math.max(...alts) : null;
   const lowEl = alts.length ? Math.min(...alts) : null;
 
-  // Speeds
-  const speeds = routePoints.map(p => p.speed).filter(s => s !== null && Number.isFinite(s) && s > 0);
-  const avgMovingSpeed = speeds.length ? speeds.reduce((a, b) => a + b, 0) / speeds.length : 0;
-
   // Driving time (total - sum of stops)
   const stoppedMs = stops.reduce((sum, s) => sum + s.duration, 0);
   const drivingMs = Math.max(0, totalMs - stoppedMs);
@@ -1149,7 +1347,7 @@ function computeTripStats(routePoints, stops) {
     totalHours: totalH, drivingHours: drivingMs / 3600000, stoppedHours: stoppedMs / 3600000,
     restCount: restStops, nightCount: nightStays,
     restHours: restMs / 3600000, nightHours: nightMs / 3600000,
-    highEl, lowEl, avgMovingSpeed, avgDailyKm, walkDays, walkHours, distKm
+    highEl, lowEl, avgDailyKm, walkDays, walkHours, distKm
   };
 }
 
@@ -1162,7 +1360,7 @@ $("#print-report").addEventListener("click", () => {
   const dist = $("#distance").textContent;
   const peak = $("#peak").textContent;
   const dur = $("#duration").textContent;
-  const stats = computeTripStats(points, detectedStops.filter(s => !dismissedStops.has(s.id)));
+  const stats = computeTripStats(points, visibleStops());
   const routeSvg = generateRouteSVG(points);
 
   const startStr = new Date(stats.startTime).toLocaleString();
@@ -1174,7 +1372,7 @@ $("#print-report").addEventListener("click", () => {
 
   const highlightsHtml = loadedHighlights().map(h => {
     const cat = categories.find(c => c.type === h.type) || { label: "Highlight" };
-    return `<tr><td>${h.name}</td><td>${cat.label}</td><td>${h.timestamp ? new Date(h.timestamp).toLocaleDateString() : '—'}</td></tr>`;
+    return `<tr><td>${esc(h.name)}</td><td>${esc(cat.label)}</td><td>${h.timestamp ? new Date(h.timestamp).toLocaleDateString() : '—'}</td></tr>`;
   }).join("");
 
   const page = $("#trip-report-page");
@@ -1193,7 +1391,7 @@ $("#print-report").addEventListener("click", () => {
     <div class="stat-grid" style="margin-top:8px">
       <div class="stat-card"><span>Highest Point</span><strong>${stats.highEl !== null ? Math.round(stats.highEl) + ' m' : '—'}</strong></div>
       <div class="stat-card"><span>Lowest Point</span><strong>${stats.lowEl !== null ? Math.round(stats.lowEl) + ' m' : '—'}</strong></div>
-      <div class="stat-card"><span>Avg Moving Speed</span><strong>${stats.avgMovingSpeed ? stats.avgMovingSpeed.toFixed(1) + ' km/h' : '—'}</strong></div>
+      <div class="stat-card"><span>Avg Moving Speed</span><strong>${analysis?.avgKmh ? formatSpeed(analysis.avgKmh, 1) : '—'}</strong></div>
       <div class="stat-card"><span>Avg Daily</span><strong>${stats.avgDailyKm ? stats.avgDailyKm.toFixed(0) + ' km' : '—'}</strong></div>
     </div>
 

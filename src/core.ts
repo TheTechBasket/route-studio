@@ -24,6 +24,7 @@ const MAX_REASONABLE_SPEED = Number.isFinite(configuredMaximum) && configuredMax
   : 130;
 
 function finiteOrNull(value: unknown): number | null {
+  if (value === null || value === "") return null; // Number() turns both into 0
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
 }
@@ -147,7 +148,7 @@ export function parseGpx(content: string, source: string, fallbackTime: number):
       latitude,
       longitude,
       speed: 0,
-      rawSpeed: metersPerSecond === null ? 0 : metersPerSecond * 3.6,
+      rawSpeed: metersPerSecond === null ? NaN : metersPerSecond * 3.6,
       calculatedSpeed: 0,
       heading,
       altitude: xmlNumber(block, ["ele"]),
@@ -189,7 +190,7 @@ export function parseGeoJson(content: string, source: string, fallbackTime: numb
       const timeValue = propertyAt(properties, ["timestamps", "times", "coordTimes", "time"], index);
       const parsedTime = typeof timeValue === "number" ? timeValue : Date.parse(String(timeValue ?? ""));
       const timestamp = Number.isFinite(parsedTime) ? parsedTime : fallbackTime + points.length * 1000;
-      const speedValue = finiteOrNull(propertyAt(properties, ["speeds", "speed"], index)) ?? 0;
+      const speedValue = finiteOrNull(propertyAt(properties, ["speeds", "speed"], index)) ?? NaN;
       points.push({
         timestamp,
         rawTimestamp: timestamp,
@@ -227,6 +228,7 @@ export function finalizePoints(points: Point[], previous: Point | null = null): 
   for (const point of points) {
     point.calculatedSpeed = calculateSpeed(point, previous);
     point.speed = cleanSpeed(point.rawSpeed, point.calculatedSpeed);
+    if (!Number.isFinite(point.rawSpeed)) point.rawSpeed = 0;
     previous = point;
   }
   return points;

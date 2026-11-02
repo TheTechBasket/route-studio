@@ -10,6 +10,7 @@ Local, dependency-light route viewer for dashcam TXT, GPX, and GeoJSON files.
 - Leaflet map with start/end markers
 - Route replay with inactive gaps compressed
 - Cleaned, raw, and calculated speed views
+- Traffic view: route and chart colored by speed, time per speed band, slowest and fastest stretches, stops left out
 - Heading, altitude, and sensor charts
 - GPX and GeoJSON exports
 - Incremental imports for growing dashcam TXT files
@@ -74,7 +75,7 @@ Full field-level detail is in [docs/formats.md](docs/formats.md). GPX and GeoJSO
 
 ## License
 
-Licensed under [GNU AGPL-3.0-only](LICENSE). Commercial use is allowed. Modified versions offered to users, including over a network, must keep the license notices and make corresponding source code available under the AGPL.
+Licensed under the [MIT License](LICENSE).
 
 ---
 

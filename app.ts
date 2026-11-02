@@ -52,6 +52,7 @@ async function loadConfig(): Promise<{ highlights: any[]; stopsOverrides: Record
   }
 }
 const MAX_MAP_POINTS = 25_000;
+const PARKED_SPEED_KMH = 1.5;
 const SUPPORTED_EXTENSIONS = new Set([".txt", ".gpx", ".geojson", ".json"]);
 
 function emptyManifest(): Manifest {
@@ -318,13 +319,17 @@ export function toGeoJson(points: Point[]) {
 
 export function summarizePoints(points: Point[], start: number, end: number) {
   let distance = 0;
-  for (let index = 1; index < points.length; index += 1) {
-    distance += distanceKm(points[index - 1], points[index]);
+  let peakSpeed = 0;
+  for (let index = 0; index < points.length; index += 1) {
+    peakSpeed = Math.max(peakSpeed, points[index].speed);
+    if (index === 0) continue;
+    const isParked = points[index - 1].speed < PARKED_SPEED_KMH && points[index].speed < PARKED_SPEED_KMH;
+    if (!isParked) distance += distanceKm(points[index - 1], points[index]);
   }
   return {
     pointCount: points.length,
     distanceKm: distance,
-    peakSpeed: points.length ? Math.max(...points.map((point) => point.speed)) : 0,
+    peakSpeed,
     selectedDurationMs: end - start,
     dataDurationMs: points.length > 1 ? points.at(-1)!.timestamp - points[0].timestamp : 0,
     sourceCount: new Set(points.map((point) => point.source)).size,

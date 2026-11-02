@@ -29,6 +29,8 @@ Two-stage pipeline, no framework, no database, no bundler:
 
 Frontend (`public/index.html`, `public/app.js`, `public/styles.css`) is vanilla JS + Tailwind CDN + Leaflet, no build step, no framework — `app.js` is one file covering map rendering, replay, charts, stop detection, and trip report/print export. It talks to the backend only through the `/api/*` endpoints in `app.ts`.
 
+`public/traffic.js` is the one frontend module with no DOM access, so `test/traffic.test.ts` can import it. It turns loaded points into speed bands, moving time and slowest/fastest stretches. Stops and recording gaps are left out: a stop is staying inside 50 m for the threshold picked in the UI (default 3 min) or a detected stop the user kept. Because `/api/route` downsamples, long ranges get coarser results than the summary, which reads all points.
+
 ### Adding a new input format
 
 Add a parser in `src/core.ts` that returns `Point[]`, register its extension in `SUPPORTED_EXTENSIONS` (`app.ts`) and wire it into `importStructured` (or `importText` if it needs incremental/streaming import like TXT), then add a parser test in `test/parser.test.ts`. See `docs/formats.md` for the field-level contract each format must satisfy (timestamp, lat/lon, speed, heading, and how missing data is defaulted).
